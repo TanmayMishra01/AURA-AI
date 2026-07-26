@@ -1,9 +1,36 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      (function() {
+        try {
+          var target = window;
+          var desc = Object.getOwnPropertyDescriptor(target, 'fetch');
+          if (!desc) {
+            var proto = Object.getPrototypeOf(target);
+            if (proto) desc = Object.getOwnPropertyDescriptor(proto, 'fetch');
+          }
+          if (desc && !desc.set) {
+            var currentFetch = target.fetch;
+            Object.defineProperty(target, 'fetch', {
+              get: function() { return currentFetch; },
+              set: function(v) { currentFetch = v; },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e) {
+          console.warn("Fetch property guard initialized with warning:", e);
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>AuraAI - Next Gen Image Gen</title>
+    <meta name="theme-color" content="#1a1a1a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIkF1cmFBSSEiLAogICJzaG9ydF9uYW1lIjogIkF1cmFBSSEiLAogICJzdGFydF91cmwiOiAiLiIsCiAgImRpc3BsYXlfbW9kZSI6ICJzdGFuZGFsb25lIiwKICAiYmFja2dyb3VuZF9jb2xvciI6ICIjMWExYTlhIiwKICAidGhlbWVfY29sb3IiOiAiIzE1N2ZmMCIsCiAgImljb25zIjogWwogICAgewogICAgICAic3JjIjogImh0dHBzOi8vc2VtYW50IC9hc3NldHMvaWNvbi5wbmciLAogICAgICAic2l6ZXMiOiAiMTkyeDE5MiIsCiAgICAgICJ0eXBlIjogImltYWdlL3BuZyIKICAgIH0KICBdCn0=" />
   </head>
   <body>
     <div id="root"></div>

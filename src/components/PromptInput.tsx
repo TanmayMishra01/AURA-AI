@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Sparkles,
   Shuffle,
@@ -8,9 +8,13 @@ import {
   ChevronDown,
   ChevronUp,
   Image as ImageIcon,
+  Camera,
+  Upload,
+  Video,
 } from "lucide-react";
 import { AspectRatioOption, StyleOption } from "../types";
 import { STYLE_OPTIONS, PROMPT_IDEAS } from "../data/mockGallery";
+import { LiveCameraModal } from "./LiveCameraModal";
 
 interface PromptInputProps {
   prompt: string;
@@ -21,7 +25,7 @@ interface PromptInputProps {
   setSelectedStyle: (value: string) => void;
   negativePrompt: string;
   setNegativePrompt: (value: string) => void;
-  onGenerate: () => void;
+  onGenerate: (overridePrompt?: string) => void;
   isGenerating: boolean;
   onShowToast: (msg: string) => void;
 }
@@ -40,14 +44,17 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onShowToast,
 }) => {
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const aspectRatios: { label: string; value: AspectRatioOption; icon: string }[] = [
-    { label: "1:1 Square", value: "1:1", icon: "aspect-square" },
-    { label: "16:9 Landscape", value: "16:9", icon: "aspect-video" },
-    { label: "9:16 Portrait", value: "9:16", icon: "aspect-portrait" },
-    { label: "4:3 Standard", value: "4:3", icon: "aspect-4-3" },
-    { label: "3:4 Photo", value: "3:4", icon: "aspect-3-4" },
+  const aspectRatios: { label: string; value: AspectRatioOption }[] = [
+    { label: "1:1 Square", value: "1:1" },
+    { label: "16:9 Landscape", value: "16:9" },
+    { label: "9:16 Portrait", value: "9:16" },
+    { label: "4:3 Standard", value: "4:3" },
+    { label: "3:4 Photo", value: "3:4" },
   ];
 
   const handleSurpriseMe = () => {
@@ -83,15 +90,85 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     }
   };
 
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzingImage(true);
+    onShowToast("Transforming photo into ultra-advanced AI masterpiece...");
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await fetch("/api/describe-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageBase64: base64Data,
+            mimeType: file.type || "image/jpeg",
+          }),
+        });
+        const data = await res.json();
+        const basePrompt = data.prompt || "An intricate hyper-realistic photorealistic artwork masterpiece";
+        const ultraPrompt = `${basePrompt}, 8k resolution, cinematic lighting, masterpiece, hyper-advanced photorealistic visual detail, stunning composition`;
+
+        setPrompt(ultraPrompt);
+        onShowToast("Generating ultra-advanced AI enhanced image...");
+
+        // Directly synthesize the AI enhanced image from the uploaded photo
+        onGenerate(ultraPrompt);
+      } catch (err) {
+        console.error(err);
+        onShowToast("Failed to process photo.");
+      } finally {
+        setIsAnalyzingImage(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="input-area bg-[#2d2d2d] border border-[#3e3e3e] rounded-2xl p-4 shadow-xl mb-6">
+      {/* Hidden File Input for Camera / Upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImageFileChange}
+        accept="image/*"
+        className="hidden"
+      />
+
       {/* Top action row */}
-      <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
           <ImageIcon className="w-3.5 h-3.5 text-[#157ff0]" />
           Image Prompt
         </span>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsCameraModalOpen(true)}
+            disabled={isGenerating || isAnalyzingImage}
+            className="text-xs text-white bg-[#157ff0]/20 hover:bg-[#157ff0]/30 border border-[#157ff0]/40 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all shadow-sm"
+            title="Open direct live camera stream on screen"
+          >
+            <Video className="w-3.5 h-3.5 text-[#38bdf8] animate-pulse" />
+            <span className="font-semibold text-sky-200">Live Camera</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isGenerating || isAnalyzingImage}
+            className="text-xs text-gray-300 hover:text-white bg-[#222222] hover:bg-[#333333] border border-[#444] px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+            title="Upload photo to generate an ultra-advanced AI enhanced image"
+          >
+            <Upload className="w-3 h-3 text-[#38bdf8]" />
+            <span>{isAnalyzingImage ? "Enhancing..." : "Upload & AI Enhance"}</span>
+          </button>
+
           <button
             type="button"
             onClick={handleSurpriseMe}
@@ -125,7 +202,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe the image you want to generate (e.g. 'A futuristic cyberpunk motorcycle speeding through glowing neon rain')..."
           rows={3}
-          disabled={isGenerating}
+          disabled={isGenerating || isAnalyzingImage}
           className="w-full bg-[#121212] border border-[#444] focus:border-[#157ff0] focus:ring-1 focus:ring-[#157ff0] text-white p-3 rounded-xl text-sm resize-none outline-none transition-all placeholder:text-gray-500"
         />
         {prompt && (
@@ -247,6 +324,13 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           )}
         </button>
       </div>
+      {/* Live Camera Viewfinder Modal */}
+      <LiveCameraModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onCapturePrompt={(newPrompt) => setPrompt(newPrompt)}
+        onShowToast={onShowToast}
+      />
     </div>
   );
 };
